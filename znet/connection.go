@@ -14,7 +14,7 @@ import (
 	"github.com/aceld/zinx/ziface"
 )
 
-//Connection 链接
+// Connection 链接
 type Connection struct {
 	//当前Conn属于哪个Server
 	TCPServer ziface.IServer
@@ -39,7 +39,7 @@ type Connection struct {
 	isClosed bool
 }
 
-//NewConnection 创建连接的方法
+// NewConnection 创建连接的方法
 func NewConnection(server ziface.IServer, conn *net.TCPConn, connID uint32, msgHandler ziface.IMsgHandle) *Connection {
 	//初始化Conn属性
 	c := &Connection{
@@ -57,7 +57,7 @@ func NewConnection(server ziface.IServer, conn *net.TCPConn, connID uint32, msgH
 	return c
 }
 
-//StartWriter 写消息Goroutine， 用户将数据发送给客户端
+// StartWriter 写消息Goroutine， 用户将数据发送给客户端
 func (c *Connection) StartWriter() {
 	fmt.Println("[Writer Goroutine is running]")
 	defer fmt.Println(c.RemoteAddr().String(), "[conn Writer exit!]")
@@ -81,7 +81,7 @@ func (c *Connection) StartWriter() {
 	}
 }
 
-//StartReader 读消息Goroutine，用于从客户端中读取数据
+// StartReader 读消息Goroutine，用于从客户端中读取数据
 func (c *Connection) StartReader() {
 	fmt.Println("[Reader Goroutine is running]")
 	defer fmt.Println(c.RemoteAddr().String(), "[conn Reader exit!]")
@@ -120,25 +120,27 @@ func (c *Connection) StartReader() {
 			}
 			msg.SetData(data)
 
-			//得到当前客户端请求的Request数据
-			req := Request{
-				conn:  c,
-				msg:   msg,
-				index: 0,
-			}
-
-			if utils.GlobalObject.WorkerPoolSize > 0 {
-				//已经启动工作池机制，将消息交给Worker处理
-				c.MsgHandler.SendMsgToTaskQueue(&req)
-			} else {
-				//从绑定好的消息和对应的处理方法中执行对应的Handle方法
-				go c.MsgHandler.DoMsgHandler(&req)
-			}
+			// 可以进行优化
+			go c.TCPServer.CallOnConnRead(c, msg)
+			////得到当前客户端请求的Request数据
+			//req := Request{
+			//	conn:  c,
+			//	msg:   msg,
+			//	index: 0,
+			//}
+			//
+			//if utils.GlobalObject.WorkerPoolSize > 0 {
+			//	//已经启动工作池机制，将消息交给Worker处理
+			//	c.MsgHandler.SendMsgToTaskQueue(&req)
+			//} else {
+			//	//从绑定好的消息和对应的处理方法中执行对应的Handle方法
+			//	go c.MsgHandler.DoMsgHandler(&req)
+			//}
 		}
 	}
 }
 
-//Start 启动连接，让当前连接开始工作
+// Start 启动连接，让当前连接开始工作
 func (c *Connection) Start() {
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	//按照用户传递进来的创建连接时需要处理的业务，执行钩子方法
@@ -155,28 +157,28 @@ func (c *Connection) Start() {
 	}
 }
 
-//Stop 停止连接，结束当前连接状态M
+// Stop 停止连接，结束当前连接状态M
 func (c *Connection) Stop() {
 	c.cancel()
 }
 
-//GetTCPConnection 从当前连接获取原始的socket TCPConn
+// GetTCPConnection 从当前连接获取原始的socket TCPConn
 func (c *Connection) GetTCPConnection() *net.TCPConn {
 	return c.Conn
 }
 
-//GetConnID 获取当前连接ID
+// GetConnID 获取当前连接ID
 func (c *Connection) GetConnID() uint32 {
 	return c.ConnID
 }
 
-//RemoteAddr 获取远程客户端地址信息
+// RemoteAddr 获取远程客户端地址信息
 func (c *Connection) RemoteAddr() net.Addr {
 	return c.Conn.RemoteAddr()
 }
 
-//SendMsg 直接将Message数据发送数据给远程的TCP客户端
-func (c *Connection) SendMsg(msgID uint32, data []byte) error {
+// SendMsg 直接将Message数据发送数据给远程的TCP客户端
+func (c *Connection) SendMsg(data []byte) error {
 	c.RLock()
 	defer c.RUnlock()
 	if c.isClosed == true {
@@ -185,9 +187,8 @@ func (c *Connection) SendMsg(msgID uint32, data []byte) error {
 
 	//将data封包，并且发送
 	dp := c.TCPServer.Packet()
-	msg, err := dp.Pack(zpack.NewMsgPackage(msgID, data))
+	msg, err := dp.Pack(zpack.NewMsgPackage(data))
 	if err != nil {
-		fmt.Println("Pack error msg ID = ", msgID)
 		return errors.New("Pack error msg ")
 	}
 
@@ -196,11 +197,11 @@ func (c *Connection) SendMsg(msgID uint32, data []byte) error {
 	return err
 }
 
-//SendBuffMsg  发生BuffMsg
-func (c *Connection) SendBuffMsg(msgID uint32, data []byte) error {
+// SendBuffMsg  发生BuffMsg
+func (c *Connection) SendBuffMsg(data []byte) error {
 	c.RLock()
 	defer c.RUnlock()
-	idleTimeout := time.NewTimer(5 * time.Millisecond)
+	idleTimeout := time.NewTimer(10 * time.Millisecond)
 	defer idleTimeout.Stop()
 
 	if c.isClosed == true {
@@ -209,9 +210,8 @@ func (c *Connection) SendBuffMsg(msgID uint32, data []byte) error {
 
 	//将data封包，并且发送
 	dp := c.TCPServer.Packet()
-	msg, err := dp.Pack(zpack.NewMsgPackage(msgID, data))
+	msg, err := dp.Pack(zpack.NewMsgPackage(data))
 	if err != nil {
-		fmt.Println("Pack error msg ID = ", msgID)
 		return errors.New("Pack error msg ")
 	}
 
@@ -225,10 +225,10 @@ func (c *Connection) SendBuffMsg(msgID uint32, data []byte) error {
 	//写回客户端
 	//c.msgBuffChan <- msg
 
-	return nil
+	//return nil
 }
 
-//SetProperty 设置链接属性
+// SetProperty 设置链接属性
 func (c *Connection) SetProperty(key string, value interface{}) {
 	c.propertyLock.Lock()
 	defer c.propertyLock.Unlock()
@@ -239,7 +239,7 @@ func (c *Connection) SetProperty(key string, value interface{}) {
 	c.property[key] = value
 }
 
-//GetProperty 获取链接属性
+// GetProperty 获取链接属性
 func (c *Connection) GetProperty(key string) (interface{}, error) {
 	c.propertyLock.Lock()
 	defer c.propertyLock.Unlock()
@@ -251,7 +251,7 @@ func (c *Connection) GetProperty(key string) (interface{}, error) {
 	return nil, errors.New("no property found")
 }
 
-//RemoveProperty 移除链接属性
+// RemoveProperty 移除链接属性
 func (c *Connection) RemoveProperty(key string) {
 	c.propertyLock.Lock()
 	defer c.propertyLock.Unlock()
@@ -259,7 +259,7 @@ func (c *Connection) RemoveProperty(key string) {
 	delete(c.property, key)
 }
 
-//返回ctx，用于用户自定义的go程获取连接退出状态
+// 返回ctx，用于用户自定义的go程获取连接退出状态
 func (c *Connection) Context() context.Context {
 	return c.ctx
 }
